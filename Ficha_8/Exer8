@@ -1,0 +1,147 @@
+Aqui está uma implementação em Java que cobre as funcionalidades descritas para o sistema de controle de biblioteca usando programação concorrente com `Lock`, `ReentrantLock`, `ReadWriteLock`, `Condition` e `StampedLock`.
+
+```java
+import java.util.*;
+import java.util.concurrent.locks.*;
+
+public class Biblioteca {
+
+    private final Map<String, Livro> catalogoLivros = new HashMap<>();
+    private final ReentrantLock catalogoLock = new ReentrantLock();
+    private final ReadWriteLock emprestimoLock = new ReentrantLock();
+    private final StampedLock disponibilidadeLock = new StampedLock();
+    private final Condition livroDisponivel = emprestimoLock.newCondition();
+
+    // Classe para representar um livro
+    static class Livro {
+        String titulo;
+        boolean emprestado;
+
+        Livro(String titulo) {
+            this.titulo = titulo;
+            this.emprestado = false;
+        }
+    }
+
+    // Cadastro de Livros
+    public void adicionarLivro(String titulo) {
+        catalogoLock.lock();
+        try {
+            catalogoLivros.put(titulo, new Livro(titulo));
+            System.out.println("Livro adicionado: " + titulo);
+        } finally {
+            catalogoLock.unlock();
+        }
+    }
+
+    public void removerLivro(String titulo) {
+        catalogoLock.lock();
+        try {
+            catalogoLivros.remove(titulo);
+            System.out.println("Livro removido: " + titulo);
+        } finally {
+            catalogoLock.unlock();
+        }
+    }
+
+    // Empréstimo de Livros
+    public void emprestarLivro(String titulo) {
+        emprestimoLock.readLock().lock();
+        try {
+            Livro livro = catalogoLivros.get(titulo);
+            if (livro != null && !livro.emprestado) {
+                emprestimoLock.writeLock().lock();
+                try {
+                    livro.emprestado = true;
+                    System.out.println("Livro emprestado: " + titulo);
+                } finally {
+                    emprestimoLock.writeLock().unlock();
+                }
+            } else {
+                System.out.println("Livro não disponível para empréstimo: " + titulo);
+            }
+        } finally {
+            emprestimoLock.readLock().unlock();
+        }
+    }
+
+    // Devolução de Livros
+    public void devolverLivro(String titulo) {
+        emprestimoLock.writeLock().lock();
+        try {
+            Livro livro = catalogoLivros.get(titulo);
+            if (livro != null && livro.emprestado) {
+                livro.emprestado = false;
+                livroDisponivel.signalAll();
+                System.out.println("Livro devolvido: " + titulo);
+            }
+        } finally {
+            emprestimoLock.writeLock().unlock();
+        }
+    }
+
+    // Consulta de Disponibilidade
+    public boolean consultarDisponibilidade(String titulo) {
+        long stamp = disponibilidadeLock.tryOptimisticRead();
+        Livro livro = catalogoLivros.get(titulo);
+        if (!disponibilidadeLock.validate(stamp)) {
+            stamp = disponibilidadeLock.readLock();
+            try {
+                livro = catalogoLivros.get(titulo);
+            } finally {
+                disponibilidadeLock.unlockRead(stamp);
+            }
+        }
+        return livro != null && !livro.emprestado;
+    }
+
+    // Gerenciamento de Usuários
+    private final Map<String, String> usuarios = new HashMap<>();
+    private final ReentrantLock usuariosLock = new ReentrantLock();
+    private final Condition usuarioAdicionado = usuariosLock.newCondition();
+
+    public void adicionarUsuario(String id, String nome) {
+        usuariosLock.lock();
+        try {
+            usuarios.put(id, nome);
+            usuarioAdicionado.signalAll();
+            System.out.println("Usuário adicionado: " + nome);
+        } finally {
+            usuariosLock.unlock();
+        }
+    }
+
+    public void removerUsuario(String id) {
+        usuariosLock.lock();
+        try {
+            usuarios.remove(id);
+            System.out.println("Usuário removido: " + id);
+        } finally {
+            usuariosLock.unlock();
+        }
+    }
+
+    public static void main(String[] args) {
+        Biblioteca biblioteca = new Biblioteca();
+
+        // Teste do sistema
+        biblioteca.adicionarLivro("Java Programming");
+        biblioteca.adicionarUsuario("1", "Alice");
+
+        biblioteca.emprestarLivro("Java Programming");
+        System.out.println("Disponibilidade do livro: " + biblioteca.consultarDisponibilidade("Java Programming"));
+
+        biblioteca.devolverLivro("Java Programming");
+        System.out.println("Disponibilidade do livro: " + biblioteca.consultarDisponibilidade("Java Programming"));
+    }
+}
+```
+
+### Explicação das funcionalidades:
+1. **Cadastro de Livros**: Usa `ReentrantLock` para sincronizar operações de adição e remoção de livros no catálogo.
+2. **Empréstimo de Livros**: Usa `ReadWriteLock` para permitir múltiplos acessos de leitura enquanto apenas uma thread pode escrever.
+3. **Devolução de Livros**: Usa `Condition` para notificar quando um livro é devolvido.
+4. **Consulta de Disponibilidade**: Usa `StampedLock` com leitura otimista para melhorar a eficiência.
+5. **Gerenciamento de Usuários**: Usa `Lock` e `Condition` para operações seguras de gerenciamento de usuários.
+
+Este código é um exemplo básico que pode ser expandido conforme necessário para atender aos requisitos completos do sistema de biblioteca.

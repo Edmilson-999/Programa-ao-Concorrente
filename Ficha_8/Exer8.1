@@ -1,0 +1,178 @@
+import java.util.*;
+import java.util.concurrent.locks.*;
+
+class Livro {
+    private String titulo;
+    private boolean disponivel;
+
+    public Livro(String titulo) {
+        this.titulo = titulo;
+        this.disponivel = true;
+    }
+
+    public String getTitulo() {
+        return titulo;
+    }
+
+    public boolean isDisponivel() {
+        return disponivel;
+    }
+
+    public void emprestar() {
+        this.disponivel = false;
+    }
+
+    public void devolver() {
+        this.disponivel = true;
+    }
+}
+
+class Usuario {
+    private String nome;
+
+    public Usuario(String nome) {
+        this.nome = nome;
+    }
+
+    public String getNome() {
+        return nome;
+    }
+}
+
+class Biblioteca {
+    private List<Livro> livros;
+    private List<Usuario> usuarios;
+    private final ReentrantLock lock = new ReentrantLock();
+    private final ReadWriteLock rwLock = new ReadWriteLock();
+    private final Condition livroDisponivel = lock.newCondition();
+    private final StampedLock stampedLock = new StampedLock();
+
+    public Biblioteca() {
+        this.livros = new ArrayList<>();
+        this.usuarios = new ArrayList<>();
+    }
+
+    // Cadastro de Livros
+    public void adicionarLivro(Livro livro) {
+        lock.lock();
+        try {
+            livros.add(livro);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void removerLivro(Livro livro) {
+        lock.lock();
+        try {
+            livros.remove(livro);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void atualizarLivro(Livro livroAntigo, Livro livroNovo) {
+        lock.lock();
+        try {
+            int index = livros.indexOf(livroAntigo);
+            if (index != -1) {
+                livros.set(index, livroNovo);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // Empréstimo de Livros
+    public void emprestarLivro(String titulo) {
+        rwLock.writeLock().lock();
+        try {
+            for (Livro livro : livros) {
+                if (livro.getTitulo().equals(titulo) && livro.isDisponivel()) {
+                    livro.emprestar();
+                    System.out.println("Livro " + titulo + " emprestado.");
+                    return;
+                }
+            }
+            System.out.println("Livro " + titulo + " não disponível.");
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    // Devolução de Livros
+    public void devolverLivro(String titulo) {
+        rwLock.writeLock().lock();
+        try {
+            for (Livro livro : livros) {
+                if (livro.getTitulo().equals(titulo)) {
+                    livro.devolver();
+                    System.out.println("Livro " + titulo + " devolvido.");
+                    livroDisponivel.signalAll(); // Notifica que um livro foi devolvido
+                    return;
+                }
+            }
+            System.out.println("Livro " + titulo + " não encontrado.");
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    // Consulta de Disponibilidade
+    public boolean verificarDisponibilidade(String titulo) {
+        long stamp = stampedLock.tryOptimisticRead();
+        try {
+            for (Livro livro : livros) {
+                if (livro.getTitulo().equals(titulo)) {
+                    return livro.isDisponivel();
+                }
+            }
+        } finally {
+            if (!stampedLock.validate(stamp)) {
+                // Se a leitura otimista falhar, você pode fazer uma leitura de bloqueio
+                stampedLock.readLock().unlock();
+            }
+        }
+        return false;
+    }
+
+    // Gerenciamento de Usuários
+    public void adicionarUsuario(Usuario usuario) {
+        lock.lock();
+        try {
+            usuarios.add(usuario);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void removerUsuario(Usuario usuario) {
+        lock.lock();
+        try {
+            usuarios.remove(usuario);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void atualizarUsuario(Usuario usuarioAntigo, Usuario usuarioNovo) {
+        lock.lock();
+        try {
+            int index = usuarios.indexOf(usuarioAntigo);
+            if (index != -1) {
+                usuarios.set(index, usuarioNovo);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+
+public class Main {
+    public static void main(String[] args) {
+        Biblioteca biblioteca = new Biblioteca();
+        
+        // Adicionando livros
+        Livro livro1 = new Livro("O Senhor dos Anéis");
+        Livro livro2 = new Livro("1984");
+        biblioteca.adicionarLivro(livro1)
